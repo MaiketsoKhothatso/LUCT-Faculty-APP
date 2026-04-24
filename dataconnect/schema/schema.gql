@@ -1,0 +1,34 @@
+type User @table {
+  username: String!
+  email: String
+  createdAt: Timestamp!
+  lastLogin: Timestamp
+}
+
+type Habit @table {
+  user: User!
+  name: String!
+  description: String
+  createdAt: Timestamp!
+  isPublic: Boolean!
+  targetFrequency: String
+  colorHex: String
+}
+
+type DailyLog @table {
+  user: User!
+  habit: Habit!
+  logDate: Date!
+  isCompleted: Boolean!
+  notes: String
+  createdAt: Timestamp!
+}
+
+type Reminder @table {
+  user: User!
+  habit: Habit!
+  reminderTime: String!
+  isActive: Boolean!
+  daysOfWeek: [String]
+  createdAt: Timestamp!
+}

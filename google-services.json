@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "853280686695",
+    "project_id": "university-management-sy-6fe1a",
+    "storage_bucket": "university-management-sy-6fe1a.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:853280686695:android:4a22b1bf07c7e36882cac2",
+        "android_client_info": {
+          "package_name": "luct_faculty_app.firebaseapp.com"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCJ8uPaN7ynvWKk2T8TNIXM8JVjk7XGOa0"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

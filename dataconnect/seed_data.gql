@@ -1,0 +1,97 @@
+mutation CreateSeedData @transaction @auth(level: USER, insecureReason: "This operation is safe to expose to all logged in users.") {
+  user_insertMany(data: [
+    {
+      id: "a1b2c3d4-e5f6-7890-1234-567890abcdef",
+      username: "habit_user_1",
+      email: "user1@example.com",
+      createdAt: "2023-01-01T00:00:00Z"
+    },
+    {
+      id: "b2c3d4e5-f6a7-8901-2345-67890abcdef0",
+      username: "habit_user_2",
+      email: "user2@example.com",
+      createdAt: "2023-01-02T00:00:00Z"
+    }
+  ])
+  habit_insertMany(data: [
+    {
+      id: "c3d4e5f6-a7b8-9012-3456-7890abcdef12",
+      userId: "a1b2c3d4-e5f6-7890-1234-567890abcdef",
+      name: "Drink Water",
+      description: "Drink 8 glasses of water daily",
+      createdAt: "2023-01-03T08:00:00Z",
+      isPublic: true,
+      targetFrequency: "Daily",
+      colorHex: "#ADD8E6"
+    },
+    {
+      id: "d4e5f6a7-b8c9-0123-4567-890abcdef234",
+      userId: "a1b2c3d4-e5f6-7890-1234-567890abcdef",
+      name: "Read Book",
+      description: "Read for 30 minutes before bed",
+      createdAt: "2023-01-03T09:00:00Z",
+      isPublic: false,
+      targetFrequency: "Daily",
+      colorHex: "#90EE90"
+    },
+    {
+      id: "e5f6a7b8-c9d0-1234-5678-90abcdef3456",
+      userId: "b2c3d4e5-f6a7-8901-2345-67890abcdef0",
+      name: "Exercise",
+      description: "Go for a 20-minute run",
+      createdAt: "2023-01-04T07:30:00Z",
+      isPublic: true,
+      targetFrequency: "3 times a week",
+      colorHex: "#FFB6C1"
+    }
+  ])
+  dailyLog_insertMany(data: [
+    {
+      id: "f6a7b8c9-d0e1-2345-6789-0abcdef45678",
+      userId: "a1b2c3d4-e5f6-7890-1234-567890abcdef",
+      habitId: "c3d4e5f6-a7b8-9012-3456-7890abcdef12",
+      logDate: "2023-01-04",
+      isCompleted: true,
+      notes: "Drank 10 glasses today!",
+      createdAt: "2023-01-04T18:00:00Z"
+    },
+    {
+      id: "a7b8c9d0-e1f2-3456-7890-abcdef567890",
+      userId: "a1b2c3d4-e5f6-7890-1234-567890abcdef",
+      habitId: "d4e5f6a7-b8c9-0123-4567-890abcdef234",
+      logDate: "2023-01-04",
+      isCompleted: false,
+      notes: "Forgot to read, too tired.",
+      createdAt: "2023-01-04T23:00:00Z"
+    },
+    {
+      id: "b8c9d0e1-f2a3-4567-8901-2abcdef67890",
+      userId: "b2c3d4e5-f6a7-8901-2345-67890abcdef0",
+      habitId: "e5f6a7b8-c9d0-1234-5678-90abcdef3456",
+      logDate: "2023-01-05",
+      isCompleted: true,
+      notes: "Good run, feeling energized.",
+      createdAt: "2023-01-05T08:00:00Z"
+    }
+  ])
+  reminder_insertMany(data: [
+    {
+      id: "c9d0e1f2-a3b4-5678-9012-3abcdef78901",
+      userId: "a1b2c3d4-e5f6-7890-1234-567890abcdef",
+      habitId: "c3d4e5f6-a7b8-9012-3456-7890abcdef12",
+      reminderTime: "09:00",
+      isActive: true,
+      daysOfWeek: ["Monday", "Wednesday", "Friday"],
+      createdAt: "2023-01-03T10:00:00Z"
+    },
+    {
+      id: "d0e1f2a3-b4c5-6789-0123-4abcdef89012",
+      userId: "a1b2c3d4-e5f6-7890-1234-567890abcdef",
+      habitId: "d4e5f6a7-b8c9-0123-4567-890abcdef234",
+      reminderTime: "21:00",
+      isActive: false,
+      daysOfWeek: ["Tuesday", "Thursday"],
+      createdAt: "2023-01-03T11:00:00Z"
+    }
+  ])
+}
