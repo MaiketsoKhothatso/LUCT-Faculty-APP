@@ -1,12 +1,11 @@
 import { Stack, useRootNavigationState, useRouter, useSegments } from 'expo-router';
-import { User } from 'firebase/auth';
 import React, { useEffect, useState } from 'react';
 import LoadingSpinner from '../src/components/LoadingSpinner';
-import { onAuthStateChange } from '../src/services/auth';
+import { getDefaultRouteForRole, onAuthStateChange } from '../src/services/auth';
 import { UserRole } from '../src/types';
 
 export default function RootLayout() {
-  const [user, setUser] = useState<User | null>(null);
+  const [userId, setUserId] = useState<string | null>(null);
   const [userRole, setUserRole] = useState<UserRole | null>(null);
   const [loading, setLoading] = useState(true);
   const router = useRouter();
@@ -15,43 +14,30 @@ export default function RootLayout() {
 
   useEffect(() => {
     const unsubscribe = onAuthStateChange((currentUser, role) => {
-      setUser(currentUser);
+      setUserId(currentUser?.uid ?? null);
       setUserRole(role);
       setLoading(false);
     });
     return unsubscribe;
   }, []);
 
-
   useEffect(() => {
     if (loading) return;
     if (!navigationState?.key) return;
 
-    const inAuthGroup = segments[0] === undefined;
+    const currentRoute = segments[0] ? String(segments[0]) : '';
+    const inAuthRoute = currentRoute === '';
+    const expectedRoute = userRole ? getDefaultRouteForRole(userRole).slice(1) : null;
 
-    if (!user && !inAuthGroup) {
-      
+    if (!userId && !inAuthRoute) {
       router.replace('/');
-    } else if (user && inAuthGroup) {
-      
-      switch (userRole) {
-        case 'student':
-          router.replace('/student');
-          break;
-        case 'lecturer':
-          router.replace('/lecturer');
-          break;
-        case 'prl':
-          router.replace('/prl');
-          break;
-        case 'pl':
-          router.replace('/pl');
-          break;
-        default:
-          router.replace('/student');
-      }
+      return;
     }
-  }, [user, loading, userRole, navigationState?.key, segments]);
+
+    if (userId && expectedRoute && currentRoute !== expectedRoute) {
+      router.replace(getDefaultRouteForRole(userRole));
+    }
+  }, [loading, navigationState?.key, router, segments, userId, userRole]);
 
   if (loading) return <LoadingSpinner />;
 

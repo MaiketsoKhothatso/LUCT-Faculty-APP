@@ -1,9 +1,15 @@
 import React from 'react';
-import { ActivityIndicator, StyleSheet, View } from 'react-native';
+import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
+import { COLORS } from '../styles/theme';
 
-const LoadingSpinner: React.FC = () => (
+interface LoadingSpinnerProps {
+  label?: string;
+}
+
+const LoadingSpinner: React.FC<LoadingSpinnerProps> = ({ label = 'Loading...' }) => (
   <View style={styles.container}>
-    <ActivityIndicator size="large" color="#007AFF" />
+    <ActivityIndicator size="large" color={COLORS.primary} />
+    <Text style={styles.label}>{label}</Text>
   </View>
 );
 
@@ -12,6 +18,12 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
+    backgroundColor: COLORS.background,
+    gap: 12,
+  },
+  label: {
+    fontSize: 14,
+    color: COLORS.textLight,
   },
 });
 

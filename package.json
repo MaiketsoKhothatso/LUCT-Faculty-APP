@@ -5,6 +5,7 @@
   "scripts": {
     "start": "expo start",
     "reset-project": "node ./scripts/reset-project.js",
+    "postinstall": "node ./scripts/ensure-getenv.cjs",
     "android": "expo start --android",
     "ios": "expo start --ios",
     "web": "expo start --web",
@@ -46,8 +47,12 @@
   },
   "devDependencies": {
     "@types/react": "~19.1.0",
+    "eas-cli": "^18.8.1",
     "eslint": "^9.25.0",
     "eslint-config-expo": "~10.0.0",
+    "firebase-tools": "^15.15.0",
+    "getenv": "file:vendor/getenv",
+    "netlify-cli": "^26.0.0",
     "typescript": "~5.9.2"
   },
   "private": true

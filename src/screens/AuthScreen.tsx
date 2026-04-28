@@ -6,17 +6,44 @@ import {
   KeyboardAvoidingView,
   Platform,
   SafeAreaView,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
   TouchableOpacity,
-  View
+  View,
+  useWindowDimensions,
 } from 'react-native';
 import { loginUser, registerUser } from '../services/auth';
-import { COLORS } from '../styles/theme';
+import { BORDER_RADIUS, COLORS, SHADOWS, SPACING } from '../styles/theme';
 import { UserRole } from '../types';
 
+const ROLES: UserRole[] = ['student', 'lecturer', 'prl', 'pl'];
+
+const toFriendlyAuthMessage = (error: unknown) => {
+  const code = typeof error === 'object' && error !== null && 'code' in error ? String(error.code) : '';
+
+  switch (code) {
+    case 'auth/email-already-in-use':
+      return 'This email is already registered. Please sign in instead.';
+    case 'auth/invalid-email':
+      return 'Please enter a valid email address.';
+    case 'auth/weak-password':
+      return 'Password should be at least 6 characters.';
+    case 'auth/user-not-found':
+    case 'auth/invalid-credential':
+      return 'No account was found with those credentials.';
+    case 'auth/wrong-password':
+      return 'The password is incorrect. Please try again.';
+    default:
+      return 'Authentication failed. Please try again.';
+  }
+};
+
 export default function AuthScreen() {
+  const { width } = useWindowDimensions();
+  const isCompact = width < 420;
+  const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [role, setRole] = useState<UserRole>('student');
@@ -25,135 +52,273 @@ export default function AuthScreen() {
   const [showPassword, setShowPassword] = useState(false);
 
   const handleAuth = async () => {
-    if (!email || !password) {
-      Alert.alert('Error', 'Please fill all fields');
+    if (!email.trim() || !password.trim() || (!isLogin && !name.trim())) {
+      Alert.alert('Missing Information', 'Please complete all required fields.');
       return;
     }
+
     setLoading(true);
     try {
       if (isLogin) {
-        await loginUser(email, password);
+        await loginUser(email.trim(), password);
       } else {
-        await registerUser(email, password, role);
+        await registerUser(email.trim(), password, role, name.trim());
       }
-    } catch (error: any) {
-  console.error('Auth error:', error);
-  let message = 'Authentication failed. Please try again.';
-  
-  if (error.code === 'auth/email-already-in-use') {
-    message = 'This email is already registered. Please log in instead.';
-  } else if (error.code === 'auth/invalid-email') {
-    message = 'Please enter a valid email address.';
-  } else if (error.code === 'auth/weak-password') {
-    message = 'Password should be at least 6 characters.';
-  } else if (error.code === 'auth/user-not-found') {
-    message = 'No account found with this email.';
-  } else if (error.code === 'auth/wrong-password') {
-    message = 'Incorrect password. Please try again.';
-  }
-  
-  Alert.alert('Authentication Error', message);
+    } catch (error) {
+      console.error('Auth error:', error);
+      Alert.alert('Authentication Error', toFriendlyAuthMessage(error));
     } finally {
       setLoading(false);
-    } };  
+    }
+  };
 
   return (
     <SafeAreaView style={styles.container}>
-      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.keyboardView}>
-        <View style={styles.header}>
-          <View style={styles.logoContainer}>
-            <MaterialCommunityIcons name="school" size={48} color={COLORS.primary} />
-            <Text style={styles.title}>LUCT</Text>
-          </View>
-          <Text style={styles.subtitle}>Faculty Portal</Text>
-        </View>
+      <KeyboardAvoidingView
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        style={styles.keyboardView}>
+        <ScrollView
+          contentContainerStyle={[
+            styles.scrollContent,
+            { paddingHorizontal: isCompact ? SPACING.md : SPACING.lg },
+          ]}
+          keyboardShouldPersistTaps="handled">
+          <View style={[styles.card, { maxWidth: 480, width: '100%' }]}>
+            <View style={styles.header}>
+              <View style={styles.logoContainer}>
+                <MaterialCommunityIcons name="school-outline" size={54} color={COLORS.primary} />
+                <View>
+                  <Text style={styles.title}>LUCT</Text>
+                  <Text style={styles.subtitle}>Faculty Portal</Text>
+                </View>
+              </View>
+              <Text style={styles.caption}>
+                Sign in with Firebase or create a role-based account for the faculty system.
+              </Text>
+            </View>
 
-        <View style={styles.form}>
-          <View style={styles.inputContainer}>
-            <MaterialCommunityIcons name="email-outline" size={20} color={COLORS.textLight} style={styles.inputIcon} />
-            <TextInput
-              style={styles.input}
-              placeholder="Email"
-              value={email}
-              onChangeText={setEmail}
-              autoCapitalize="none"
-              keyboardType="email-address"
-            />
-          </View>
+            {!isLogin && (
+              <View style={styles.inputContainer}>
+                <MaterialCommunityIcons
+                  name="account-outline"
+                  size={20}
+                  color={COLORS.textLight}
+                  style={styles.inputIcon}
+                />
+                <TextInput
+                  style={styles.input}
+                  placeholder="Full name"
+                  placeholderTextColor={COLORS.textLight}
+                  value={name}
+                  onChangeText={setName}
+                />
+              </View>
+            )}
 
-          <View style={styles.inputContainer}>
-            <MaterialCommunityIcons name="lock-outline" size={20} color={COLORS.textLight} style={styles.inputIcon} />
-            <TextInput
-              style={styles.input}
-              placeholder="Password"
-              value={password}
-              onChangeText={setPassword}
-              secureTextEntry={!showPassword}
-            />
-            <TouchableOpacity onPress={() => setShowPassword(!showPassword)}>
-              <MaterialCommunityIcons name={showPassword ? 'eye-off' : 'eye'} size={20} color={COLORS.textLight} />
+            <View style={styles.inputContainer}>
+              <MaterialCommunityIcons
+                name="email-outline"
+                size={20}
+                color={COLORS.textLight}
+                style={styles.inputIcon}
+              />
+              <TextInput
+                style={styles.input}
+                placeholder="Email"
+                placeholderTextColor={COLORS.textLight}
+                value={email}
+                onChangeText={setEmail}
+                autoCapitalize="none"
+                keyboardType="email-address"
+              />
+            </View>
+
+            <View style={styles.inputContainer}>
+              <MaterialCommunityIcons
+                name="lock-outline"
+                size={20}
+                color={COLORS.textLight}
+                style={styles.inputIcon}
+              />
+              <TextInput
+                style={styles.input}
+                placeholder="Password"
+                placeholderTextColor={COLORS.textLight}
+                value={password}
+                onChangeText={setPassword}
+                secureTextEntry={!showPassword}
+              />
+              <TouchableOpacity onPress={() => setShowPassword((current) => !current)}>
+                <MaterialCommunityIcons
+                  name={showPassword ? 'eye-off-outline' : 'eye-outline'}
+                  size={20}
+                  color={COLORS.textLight}
+                />
+              </TouchableOpacity>
+            </View>
+
+            {!isLogin && (
+              <View style={styles.roleSection}>
+                <Text style={styles.roleLabel}>Account Role</Text>
+                <View style={styles.roleButtons}>
+                  {ROLES.map((item) => (
+                    <TouchableOpacity
+                      key={item}
+                      style={[styles.roleButton, role === item && styles.roleButtonActive]}
+                      onPress={() => setRole(item)}>
+                      <Text
+                        style={[
+                          styles.roleButtonText,
+                          role === item && styles.roleButtonTextActive,
+                        ]}>
+                        {item.toUpperCase()}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </View>
+            )}
+
+            <TouchableOpacity style={styles.authButton} onPress={handleAuth} disabled={loading}>
+              {loading ? (
+                <ActivityIndicator color="#fff" />
+              ) : (
+                <Text style={styles.authButtonText}>{isLogin ? 'Sign In' : 'Create Account'}</Text>
+              )}
+            </TouchableOpacity>
+
+            <TouchableOpacity onPress={() => setIsLogin((current) => !current)}>
+              <Text style={styles.switchText}>
+                {isLogin ? "Don't have an account? " : 'Already have an account? '}
+                <Text style={styles.switchTextAccent}>{isLogin ? 'Sign Up' : 'Sign In'}</Text>
+              </Text>
             </TouchableOpacity>
           </View>
-
-          {!isLogin && (
-            <View style={styles.roleContainer}>
-              <Text style={styles.roleLabel}>Select Role:</Text>
-              <View style={styles.roleButtons}>
-                {(['student', 'lecturer', 'prl', 'pl'] as UserRole[]).map((r) => (
-                  <TouchableOpacity
-                    key={r}
-                    style={[styles.roleButton, role === r && styles.roleButtonActive]}
-                    onPress={() => setRole(r)}
-                  >
-                    <Text style={[styles.roleButtonText, role === r && styles.roleButtonTextActive]}>
-                      {r.toUpperCase()}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
-            </View>
-          )}
-
-          <TouchableOpacity style={styles.authButton} onPress={handleAuth} disabled={loading}>
-            {loading ? (
-              <ActivityIndicator color="#fff" />
-            ) : (
-              <Text style={styles.authButtonText}>{isLogin ? 'Sign In' : 'Create Account'}</Text>
-            )}
-          </TouchableOpacity>
-
-          <TouchableOpacity onPress={() => setIsLogin(!isLogin)}>
-            <Text style={styles.switchText}>
-              {isLogin ? "Don't have an account? " : 'Already have an account? '}
-              <Text style={styles.switchTextBold}>{isLogin ? 'Sign Up' : 'Sign In'}</Text>
-            </Text>
-          </TouchableOpacity>
-        </View>
+        </ScrollView>
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: COLORS.background },
-  keyboardView: { flex: 1, justifyContent: 'center', paddingHorizontal: 24 },
-  header: { alignItems: 'center', marginBottom: 40 },
-  logoContainer: { flexDirection: 'row', alignItems: 'center', marginBottom: 8 },
-  title: { fontSize: 32, fontWeight: 'bold', color: COLORS.primary, marginLeft: 12 },
-  subtitle: { fontSize: 18, color: COLORS.textLight },
-  form: { backgroundColor: COLORS.card, borderRadius: 20, padding: 24, shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 10, elevation: 3 },
-  inputContainer: { flexDirection: 'row', alignItems: 'center', backgroundColor: COLORS.background, borderRadius: 12, paddingHorizontal: 16, marginBottom: 16, height: 56, borderWidth: 1, borderColor: COLORS.border },
-  inputIcon: { marginRight: 12 },
-  input: { flex: 1, fontSize: 16, color: COLORS.text },
-  roleContainer: { marginBottom: 20 },
-  roleLabel: { fontSize: 14, fontWeight: '500', color: COLORS.textLight, marginBottom: 8 },
-  roleButtons: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  roleButton: { paddingVertical: 8, paddingHorizontal: 16, borderRadius: 20, borderWidth: 1, borderColor: COLORS.border, backgroundColor: COLORS.background },
-  roleButtonActive: { backgroundColor: COLORS.primary, borderColor: COLORS.primary },
-  roleButtonText: { fontSize: 12, fontWeight: '600', color: COLORS.textLight },
-  roleButtonTextActive: { color: '#fff' },
-  authButton: { backgroundColor: COLORS.primary, borderRadius: 12, height: 56, justifyContent: 'center', alignItems: 'center', marginBottom: 20 },
-  authButtonText: { color: '#fff', fontSize: 16, fontWeight: '600' },
-  switchText: { textAlign: 'center', color: COLORS.textLight },
-  switchTextBold: { color: COLORS.primary, fontWeight: '600' },
+  container: {
+    flex: 1,
+    backgroundColor: COLORS.background,
+  },
+  keyboardView: {
+    flex: 1,
+  },
+  scrollContent: {
+    flexGrow: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingVertical: SPACING.xl * 2,
+  },
+  card: {
+    backgroundColor: COLORS.card,
+    borderRadius: BORDER_RADIUS.xl,
+    padding: SPACING.xl,
+    ...SHADOWS.md,
+  },
+  header: {
+    marginBottom: SPACING.xl,
+    gap: SPACING.sm,
+  },
+  logoContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: SPACING.md,
+  },
+  title: {
+    fontSize: 30,
+    fontWeight: '700',
+    color: COLORS.text,
+  },
+  subtitle: {
+    fontSize: 16,
+    color: COLORS.textLight,
+  },
+  caption: {
+    fontSize: 14,
+    lineHeight: 20,
+    color: COLORS.textLight,
+  },
+  inputContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    minHeight: 56,
+    borderRadius: BORDER_RADIUS.md,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    backgroundColor: COLORS.background,
+    paddingHorizontal: SPACING.md,
+    marginBottom: SPACING.md,
+  },
+  inputIcon: {
+    marginRight: SPACING.sm,
+  },
+  input: {
+    flex: 1,
+    fontSize: 16,
+    color: COLORS.text,
+    paddingVertical: SPACING.sm,
+  },
+  roleSection: {
+    marginBottom: SPACING.lg,
+  },
+  roleLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: COLORS.text,
+    marginBottom: SPACING.sm,
+  },
+  roleButtons: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: SPACING.sm,
+  },
+  roleButton: {
+    minWidth: 88,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    backgroundColor: COLORS.background,
+    paddingHorizontal: SPACING.md,
+    paddingVertical: SPACING.sm,
+  },
+  roleButtonActive: {
+    backgroundColor: COLORS.primary,
+    borderColor: COLORS.primary,
+  },
+  roleButtonText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: COLORS.textLight,
+  },
+  roleButtonTextActive: {
+    color: '#fff',
+  },
+  authButton: {
+    minHeight: 56,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: BORDER_RADIUS.md,
+    backgroundColor: COLORS.primary,
+    marginBottom: SPACING.md,
+  },
+  authButtonText: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#fff',
+  },
+  switchText: {
+    textAlign: 'center',
+    color: COLORS.textLight,
+  },
+  switchTextAccent: {
+    color: COLORS.primary,
+    fontWeight: '700',
+  },
 });

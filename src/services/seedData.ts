@@ -5,7 +5,6 @@ import { ClassItem, Course, Report } from '../types';
 export const seedFirestore = async () => {
   const batch = writeBatch(db);
 
-  {/* COURSES */}
   const courses: Omit<Course, 'id'>[] = [
     // FABE Stream
     { name: 'Structural Design', code: 'FABE101', lecturer: 'Mr. Teboho Ntsaba', program: 'FABE', stream: 'FABE' },
@@ -33,13 +32,11 @@ export const seedFirestore = async () => {
     { name: 'Network Security', code: 'FICT503', lecturer: 'Mr. Tsietsi Matjele', program: 'FICT', stream: 'FICT' },
   ];
 
-  const courseRefs = courses.map(course => {
+  courses.forEach((course) => {
     const ref = doc(collection(db, 'courses'));
     batch.set(ref, course);
-    return ref;
   });
 
-  {/* CLASSES */}
   const classes: Omit<ClassItem, 'id'>[] = [
     // FABE
     { courseName: 'Structural Design', time: 'Mon 09:00 AM', studentCount: 25, lecturerId: 'Ntsaba' },
@@ -62,7 +59,6 @@ export const seedFirestore = async () => {
     batch.set(ref, cls);
   });
 
-  {/* REPORTS */}
   const reports: Omit<Report, 'id'>[] = [
     {
       title: 'Weekly Lecture Report - Structural Design',

@@ -1,190 +1,318 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
-  Alert, RefreshControl, SafeAreaView, ScrollView, StyleSheet, Text, TextInput,
-  TouchableOpacity, View,
+  Alert,
+  RefreshControl,
+  SafeAreaView,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
+  useWindowDimensions,
 } from 'react-native';
 import * as XLSX from 'xlsx';
 import LoadingSpinner from '../components/LoadingSpinner';
+import { auth } from '../config/firebase';
 import { logoutUser } from '../services/auth';
-import { fetchAllClasses, fetchAllCourses, fetchAllReports } from '../services/firestore';
+import {
+  fetchAllClasses,
+  fetchAllCourses,
+  fetchAllReports,
+  fetchAttendanceByClass,
+  fetchRatings,
+  fetchUserProfile,
+} from '../services/firestore';
 import { BORDER_RADIUS, COLORS, SHADOWS, SPACING } from '../styles/theme';
-import { ClassItem, Course, Report } from '../types';
+import { type ClassItem, type Course, type Report, type UserProfile } from '../types';
 
 export default function PRLDashboard() {
-  const [allCourses, setAllCourses] = useState<Course[]>([]);
-  const [filteredCourses, setFilteredCourses] = useState<Course[]>([]);
+  const { width } = useWindowDimensions();
+  const compact = width < 720;
+  const [profile, setProfile] = useState<UserProfile | null>(null);
+  const [courses, setCourses] = useState<Course[]>([]);
+  const [classes, setClasses] = useState<ClassItem[]>([]);
   const [reports, setReports] = useState<Report[]>([]);
-  const [allClasses, setAllClasses] = useState<ClassItem[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [expandedCourseId, setExpandedCourseId] = useState<string | null>(null);
-  const [lectures, setLectures] = useState<Record<string, any[]>>({});
+  const [attendanceRate, setAttendanceRate] = useState(0);
+  const [averageRating, setAverageRating] = useState(0);
+
+  const filteredCourses = useMemo(() => {
+    const normalized = searchTerm.trim().toLowerCase();
+    if (!normalized) return courses;
+    return courses.filter((course) =>
+      `${course.name} ${course.code ?? ''} ${course.lecturer ?? ''}`.toLowerCase().includes(normalized)
+    );
+  }, [courses, searchTerm]);
+
+  const classGroups = useMemo(() => {
+    return classes.reduce<Record<string, ClassItem[]>>((acc, classItem) => {
+      const key = classItem.courseId ?? classItem.courseName;
+      if (!acc[key]) acc[key] = [];
+      acc[key].push(classItem);
+      return acc;
+    }, {});
+  }, [classes]);
 
   const loadData = async () => {
+    const currentUser = auth.currentUser;
+    if (!currentUser) {
+      setLoading(false);
+      return;
+    }
+
     try {
-      const [c, r, cls] = await Promise.all([fetchAllCourses(), fetchAllReports(), fetchAllClasses()]);
-      setAllCourses(c); setFilteredCourses(c); setReports(r); setAllClasses(cls);
-      const mockLectures: Record<string, any[]> = {};
-      c.forEach(course => {
-        mockLectures[course.id] = [
-          { day: 'Monday', time: '10:00 AM', location: 'Room 101' },
-          { day: 'Wednesday', time: '2:00 PM', location: 'Lab 3' },
-        ];
-      });
-      setLectures(mockLectures);
-    } catch { Alert.alert('Error', 'Failed to load data.'); }
-    finally { setLoading(false); setRefreshing(false); }
+      const [userProfile, courseData, classData, reportData, ratingData] = await Promise.all([
+        fetchUserProfile(currentUser.uid),
+        fetchAllCourses(),
+        fetchAllClasses(),
+        fetchAllReports(),
+        fetchRatings(),
+      ]);
+
+      const attendanceSamples = await Promise.all(classData.slice(0, 12).map((classItem) => fetchAttendanceByClass(classItem.id)));
+      const attendanceRecords = attendanceSamples.flat();
+      const presentLike = attendanceRecords.filter((record) => record.status !== 'absent').length;
+
+      setProfile(userProfile);
+      setCourses(courseData);
+      setClasses(classData);
+      setReports(reportData.filter((report) => report.authorRole === 'lecturer' || report.authorRole === 'prl'));
+      setAttendanceRate(attendanceRecords.length ? Math.round((presentLike / attendanceRecords.length) * 100) : 0);
+      setAverageRating(
+        ratingData.length
+          ? Number((ratingData.reduce((sum, rating) => sum + rating.rating, 0) / ratingData.length).toFixed(1))
+          : 0
+      );
+    } catch (error) {
+      console.error('PRL dashboard load failed:', error);
+      Alert.alert('Loading Error', 'Could not load the principal lecturer dashboard.');
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
   };
 
-  useEffect(() => { loadData(); }, []);
   useEffect(() => {
-    setFilteredCourses(
-      searchTerm.trim() === '' ? allCourses : allCourses.filter(c => c.name.toLowerCase().includes(searchTerm.toLowerCase()))
-    );
-  }, [searchTerm, allCourses]);
+    loadData();
+  }, []);
 
-  const exportToExcel = (data: Course[]) => {
+  const exportToExcel = () => {
     try {
-      const ws = XLSX.utils.json_to_sheet(data.map(c => ({ Code: c.code, Name: c.name, Lecturer: c.lecturer })));
-      const wb = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(wb, ws, 'Courses');
-      XLSX.writeFile(wb, 'stream_courses.xlsx');
-    } catch { Alert.alert('Export Failed'); }
+      const worksheet = XLSX.utils.json_to_sheet(
+        filteredCourses.map((course) => ({
+          Code: course.code ?? '',
+          Name: course.name,
+          Lecturer: course.lecturer ?? '',
+          Classes: classGroups[course.id]?.length ?? 0,
+        }))
+      );
+      const workbook = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(workbook, worksheet, 'Courses');
+      XLSX.writeFile(workbook, 'stream_courses.xlsx');
+    } catch (error) {
+      console.error('PRL export failed:', error);
+      Alert.alert('Export Error', 'This export is not available on this device.');
+    }
   };
 
-  if (loading) return <LoadingSpinner />;
+  if (loading) {
+    return <LoadingSpinner label="Loading principal lecturer dashboard..." />;
+  }
 
   return (
     <SafeAreaView style={styles.container}>
-      <View style={styles.header}>
-        <View>
-          <Text style={styles.greeting}>Principal Lecturer</Text>
-          <Text style={styles.name}>FICT Stream</Text>
-        </View>
-        <View style={styles.headerActions}>
-          <TouchableOpacity onPress={() => exportToExcel(filteredCourses)} style={styles.iconButton}>
-            <MaterialCommunityIcons name="microsoft-excel" size={22} color={COLORS.success} />
-            <Text style={{color: COLORS.success, fontSize: 12}}>Export</Text>
-          </TouchableOpacity>
-          <TouchableOpacity onPress={logoutUser} style={styles.iconButton}>
-            <MaterialCommunityIcons name="logout" size={22} color={COLORS.danger} />
-            <Text style={{color: COLORS.danger, fontSize: 12}}>Logout</Text>
-          </TouchableOpacity>
-        </View>
-      </View>
-
-      <View style={styles.searchContainer}>
-        <MaterialCommunityIcons name="magnify" size={20} color={COLORS.textLight} />
-        <TextInput style={styles.searchInput} placeholder="Search courses..." value={searchTerm} onChangeText={setSearchTerm} />
-        {searchTerm !== '' && <TouchableOpacity onPress={() => setSearchTerm('')}><MaterialCommunityIcons name="close-circle" size={20} color={COLORS.textLight} /></TouchableOpacity>}
-      </View>
-
-      <ScrollView refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); loadData(); }} />}>
-        {/* Monitoring */}
-        <View style={styles.monitoringCard}>
-          <Text style={styles.monitoringTitle}>Stream Monitoring</Text>
-          <View style={styles.monitoringRow}>
-            <View style={styles.monitoringItem}><Text style={styles.monitoringValue}>85%</Text><Text style={styles.monitoringLabel}>Attendance</Text></View>
-            <View style={styles.monitoringItem}><Text style={styles.monitoringValue}>4.5</Text><Text style={styles.monitoringLabel}>Rating</Text></View>
-            <View style={styles.monitoringItem}><Text style={styles.monitoringValue}>{reports.filter(r=>r.status==='pending').length}</Text><Text style={styles.monitoringLabel}>Pending</Text></View>
+      <ScrollView
+        contentContainerStyle={styles.scrollContent}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); loadData(); }} />}>
+        <View style={styles.header}>
+          <View style={styles.headerCopy}>
+            <Text style={styles.greeting}>Principal Lecturer</Text>
+            <Text style={styles.name}>{profile?.name ?? 'Stream Lead'}</Text>
+            <Text style={styles.subtitle}>{profile?.stream ?? 'Faculty stream overview'}</Text>
+          </View>
+          <View style={styles.headerActions}>
+            <TouchableOpacity style={styles.iconButton} onPress={exportToExcel}>
+              <MaterialCommunityIcons name="microsoft-excel" size={20} color={COLORS.success} />
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.iconButton} onPress={logoutUser}>
+              <MaterialCommunityIcons name="logout" size={20} color={COLORS.danger} />
+            </TouchableOpacity>
           </View>
         </View>
 
-        {/* All Stream Courses with Lectures */}
-        <Text style={styles.sectionTitle}>All Stream Courses</Text>
-        {filteredCourses.map(course => (
-          <View key={course.id} style={styles.courseContainer}>
-            <TouchableOpacity style={styles.courseHeaderRow} onPress={() => setExpandedCourseId(expandedCourseId === course.id ? null : course.id)}>
-              <View style={{flex:1}}>
-                <Text style={styles.courseName}>{course.name} ({course.code})</Text>
-                <Text style={styles.courseLecturer}>{course.lecturer}</Text>
-              </View>
-              <MaterialCommunityIcons name={expandedCourseId === course.id ? 'chevron-up' : 'chevron-down'} size={24} color={COLORS.textLight} />
+        <View style={styles.searchContainer}>
+          <MaterialCommunityIcons name="magnify" size={20} color={COLORS.textLight} />
+          <TextInput
+            style={styles.searchInput}
+            placeholder="Search stream courses"
+            placeholderTextColor={COLORS.textLight}
+            value={searchTerm}
+            onChangeText={setSearchTerm}
+          />
+          {!!searchTerm && (
+            <TouchableOpacity onPress={() => setSearchTerm('')}>
+              <MaterialCommunityIcons name="close-circle" size={20} color={COLORS.textLight} />
             </TouchableOpacity>
-            {expandedCourseId === course.id && (
-              <View style={styles.lecturesContainer}>
-                <Text style={styles.lecturesTitle}>Lectures</Text>
-                {lectures[course.id]?.map((lec, idx) => (
-                  <View key={idx} style={styles.lectureItem}>
-                    <MaterialCommunityIcons name="clock-outline" size={16} color={COLORS.textLight} />
-                    <Text style={styles.lectureText}>{lec.day} {lec.time} - {lec.location}</Text>
+          )}
+        </View>
+
+        <View style={[styles.statsGrid, compact && styles.statsGridCompact]}>
+          <View style={styles.statCard}>
+            <MaterialCommunityIcons name="book-open-page-variant-outline" size={24} color={COLORS.primary} />
+            <Text style={styles.statNumber}>{courses.length}</Text>
+            <Text style={styles.statLabel}>Courses</Text>
+          </View>
+          <View style={styles.statCard}>
+            <MaterialCommunityIcons name="calendar-check-outline" size={24} color={COLORS.success} />
+            <Text style={styles.statNumber}>{attendanceRate}%</Text>
+            <Text style={styles.statLabel}>Attendance</Text>
+          </View>
+          <View style={styles.statCard}>
+            <MaterialCommunityIcons name="star-outline" size={24} color={COLORS.warning} />
+            <Text style={styles.statNumber}>{averageRating || '-'}</Text>
+            <Text style={styles.statLabel}>Avg rating</Text>
+          </View>
+        </View>
+
+        <Text style={styles.sectionTitle}>Stream Courses</Text>
+        <View style={[styles.courseGrid, compact && styles.courseGridCompact]}>
+          {filteredCourses.map((course) => (
+            <View key={course.id} style={[styles.courseCard, compact && styles.courseCardCompact]}>
+              <Text style={styles.courseTitle}>{course.name}</Text>
+              <Text style={styles.courseMeta}>{course.code ?? 'No code'}</Text>
+              <Text style={styles.courseMeta}>{course.lecturer ?? 'Lecturer not assigned'}</Text>
+              <View style={styles.chipRow}>
+                {(classGroups[course.id] ?? []).map((classItem) => (
+                  <View key={classItem.id} style={styles.classChip}>
+                    <Text style={styles.classChipText}>{classItem.time}</Text>
                   </View>
                 ))}
+                {!classGroups[course.id]?.length && (
+                  <View style={styles.classChip}>
+                    <Text style={styles.classChipText}>No class schedule</Text>
+                  </View>
+                )}
               </View>
-            )}
-          </View>
-        ))}
-
-        {/* Classes in Stream */}
-        <Text style={styles.sectionTitle}>Classes in Stream</Text>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.horizontalScroll}>
-          {allClasses.map(cls => (
-            <View key={cls.id} style={styles.classChip}>
-              <Text style={styles.classChipCourse}>{cls.courseName}</Text>
-              <Text style={styles.classChipTime}>{cls.time}</Text>
-              <Text style={styles.classChipStudents}>{cls.studentCount} students</Text>
             </View>
           ))}
-        </ScrollView>
+        </View>
 
-        {/* Reports with Feedback */}
-        <Text style={styles.sectionTitle}>Lecture Reports</Text>
-        {reports.map(r => (
-          <View key={r.id} style={styles.reportCard}>
-            <View style={styles.reportHeader}>
-              <Text style={styles.reportTitle}>{r.title}</Text>
-              <View style={[styles.statusBadge,{backgroundColor: r.status==='pending'?COLORS.warning+'20':COLORS.success+'20'}]}>
-                <Text style={{color: r.status==='pending'?COLORS.warning:COLORS.success}}>{r.status}</Text>
-              </View>
-            </View>
-            <Text style={styles.reportAuthor}>From: {r.author}</Text>
-            <TouchableOpacity style={styles.feedbackButton} onPress={() => Alert.alert('Feedback', 'Add feedback (demo)')}>
-              <MaterialCommunityIcons name="message-reply-text" size={16} color={COLORS.primary} />
-              <Text style={styles.feedbackButtonText}>Add Feedback</Text>
-            </TouchableOpacity>
+        <Text style={styles.sectionTitle}>Recent Reports</Text>
+        {reports.length === 0 ? (
+          <View style={styles.emptyState}>
+            <Text style={styles.emptyTitle}>No reports available</Text>
+            <Text style={styles.emptyCopy}>Reports from lecturers and PRLs will appear here.</Text>
           </View>
-        ))}
+        ) : (
+          reports.map((report) => (
+            <View key={report.id} style={styles.reportCard}>
+              <View style={styles.reportHeader}>
+                <Text style={styles.reportTitle}>{report.title}</Text>
+                <Text style={styles.reportStatus}>{report.status ?? 'pending'}</Text>
+              </View>
+              <Text style={styles.reportMeta}>
+                {report.author ?? 'Unknown author'} • {report.authorRole ?? 'lecturer'}
+              </Text>
+              <Text style={styles.reportCopy}>{report.content || 'No details provided.'}</Text>
+            </View>
+          ))
+        )}
       </ScrollView>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: COLORS.background, paddingHorizontal: SPACING.lg },
-  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: SPACING.sm, marginBottom: SPACING.lg },
-  greeting: { fontSize: 15, color: COLORS.textLight },
-  name: { fontSize: 24, fontWeight: '600', color: COLORS.text },
-  headerActions: { flexDirection: 'row' },
-  iconButton: { padding: SPACING.sm, marginLeft: SPACING.xs },
-  searchContainer: { flexDirection: 'row', alignItems: 'center', backgroundColor: COLORS.card, borderRadius: BORDER_RADIUS.lg, paddingHorizontal: SPACING.md, paddingVertical: SPACING.sm, marginBottom: SPACING.lg, borderWidth: 1, borderColor: COLORS.border, ...SHADOWS.sm },
-  searchInput: { flex: 1, fontSize: 15, paddingVertical: SPACING.xs, marginLeft: SPACING.sm, color: COLORS.text },
-  sectionTitle: { fontSize: 18, fontWeight: '600', color: COLORS.text, marginBottom: SPACING.md, marginTop: SPACING.lg },
-  monitoringCard: { backgroundColor: COLORS.primary, borderRadius: BORDER_RADIUS.xl, padding: SPACING.lg, marginBottom: SPACING.xl },
-  monitoringTitle: { fontSize: 18, fontWeight: '600', color: '#fff', marginBottom: SPACING.md },
-  monitoringRow: { flexDirection: 'row', justifyContent: 'space-around' },
-  monitoringItem: { alignItems: 'center' },
-  monitoringValue: { fontSize: 24, fontWeight: 'bold', color: '#fff' },
-  monitoringLabel: { fontSize: 12, color: '#fff', opacity: 0.8 },
-  courseContainer: { backgroundColor: COLORS.card, borderRadius: BORDER_RADIUS.lg, marginBottom: SPACING.md, ...SHADOWS.sm },
-  courseHeaderRow: { flexDirection: 'row', alignItems: 'center', padding: SPACING.md },
-  courseName: { fontSize: 16, fontWeight: '600', color: COLORS.text },
-  courseLecturer: { fontSize: 13, color: COLORS.textLight, marginTop: 2 },
-  lecturesContainer: { paddingHorizontal: SPACING.md, paddingBottom: SPACING.md, borderTopWidth: 1, borderTopColor: COLORS.border },
-  lecturesTitle: { fontSize: 14, fontWeight: '500', color: COLORS.text, marginBottom: SPACING.sm },
-  lectureItem: { flexDirection: 'row', alignItems: 'center', marginBottom: SPACING.xs },
-  lectureText: { fontSize: 13, color: COLORS.textLight, marginLeft: SPACING.sm },
-  horizontalScroll: { marginBottom: SPACING.xl },
-  classChip: { backgroundColor: COLORS.card, padding: SPACING.md, borderRadius: BORDER_RADIUS.lg, marginRight: SPACING.md, width: 150, ...SHADOWS.sm },
-  classChipCourse: { fontSize: 14, fontWeight: '600', color: COLORS.text },
-  classChipTime: { fontSize: 12, color: COLORS.textLight, marginTop: 4 },
-  classChipStudents: { fontSize: 12, color: COLORS.primary, marginTop: 2 },
-  reportCard: { backgroundColor: COLORS.card, borderRadius: BORDER_RADIUS.lg, padding: SPACING.md, marginBottom: SPACING.md, ...SHADOWS.sm },
-  reportHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: SPACING.sm },
-  reportTitle: { fontSize: 16, fontWeight: '600', color: COLORS.text },
-  statusBadge: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 20 },
-  reportAuthor: { fontSize: 14, color: COLORS.textLight, marginBottom: SPACING.md },
-  feedbackButton: { flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-start', paddingVertical: 6, paddingHorizontal: 12, backgroundColor: COLORS.primary+'10', borderRadius: 20 },
-  feedbackButtonText: { marginLeft: 6, color: COLORS.primary, fontWeight: '500' },
+  container: { flex: 1, backgroundColor: COLORS.background },
+  scrollContent: { padding: SPACING.lg, paddingBottom: SPACING.xl * 2 },
+  header: { flexDirection: 'row', justifyContent: 'space-between', gap: SPACING.md, marginBottom: SPACING.lg },
+  headerCopy: { flex: 1, gap: 4 },
+  greeting: { fontSize: 14, color: COLORS.textLight },
+  name: { fontSize: 28, fontWeight: '700', color: COLORS.text },
+  subtitle: { fontSize: 14, color: COLORS.textLight },
+  headerActions: { flexDirection: 'row', gap: SPACING.sm },
+  iconButton: {
+    width: 42,
+    height: 42,
+    borderRadius: BORDER_RADIUS.md,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: COLORS.card,
+    ...SHADOWS.sm,
+  },
+  searchContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    minHeight: 52,
+    borderRadius: BORDER_RADIUS.lg,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    backgroundColor: COLORS.card,
+    paddingHorizontal: SPACING.md,
+    marginBottom: SPACING.lg,
+    ...SHADOWS.sm,
+  },
+  searchInput: { flex: 1, marginLeft: SPACING.sm, fontSize: 15, color: COLORS.text },
+  statsGrid: { flexDirection: 'row', gap: SPACING.md, marginBottom: SPACING.xl },
+  statsGridCompact: { flexDirection: 'column' },
+  statCard: {
+    flex: 1,
+    minHeight: 120,
+    borderRadius: BORDER_RADIUS.lg,
+    backgroundColor: COLORS.card,
+    padding: SPACING.lg,
+    justifyContent: 'space-between',
+    ...SHADOWS.sm,
+  },
+  statNumber: { fontSize: 24, fontWeight: '700', color: COLORS.text },
+  statLabel: { fontSize: 12, color: COLORS.textLight, textTransform: 'uppercase' },
+  sectionTitle: { fontSize: 18, fontWeight: '700', color: COLORS.text, marginBottom: SPACING.md },
+  courseGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: SPACING.md, marginBottom: SPACING.xl },
+  courseGridCompact: { flexDirection: 'column' },
+  courseCard: {
+    width: '48%',
+    minWidth: 280,
+    borderRadius: BORDER_RADIUS.lg,
+    backgroundColor: COLORS.card,
+    padding: SPACING.lg,
+    gap: SPACING.sm,
+    ...SHADOWS.sm,
+  },
+  courseCardCompact: { width: '100%', minWidth: 0 },
+  courseTitle: { fontSize: 18, fontWeight: '700', color: COLORS.text },
+  courseMeta: { fontSize: 14, color: COLORS.textLight },
+  chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: SPACING.sm, marginTop: SPACING.sm },
+  classChip: {
+    paddingHorizontal: SPACING.sm,
+    paddingVertical: 6,
+    borderRadius: 999,
+    backgroundColor: `${COLORS.primary}10`,
+  },
+  classChipText: { fontSize: 12, fontWeight: '600', color: COLORS.primary },
+  emptyState: {
+    borderRadius: BORDER_RADIUS.lg,
+    backgroundColor: COLORS.card,
+    padding: SPACING.xl,
+    gap: SPACING.sm,
+    ...SHADOWS.sm,
+  },
+  emptyTitle: { fontSize: 18, fontWeight: '700', color: COLORS.text },
+  emptyCopy: { fontSize: 14, color: COLORS.textLight },
+  reportCard: {
+    borderRadius: BORDER_RADIUS.lg,
+    backgroundColor: COLORS.card,
+    padding: SPACING.lg,
+    gap: SPACING.sm,
+    marginBottom: SPACING.md,
+    ...SHADOWS.sm,
+  },
+  reportHeader: { flexDirection: 'row', justifyContent: 'space-between', gap: SPACING.sm },
+  reportTitle: { flex: 1, fontSize: 16, fontWeight: '700', color: COLORS.text },
+  reportStatus: { color: COLORS.primary, fontWeight: '600', textTransform: 'capitalize' },
+  reportMeta: { fontSize: 13, color: COLORS.textLight },
+  reportCopy: { fontSize: 14, lineHeight: 20, color: COLORS.textLight },
 });
